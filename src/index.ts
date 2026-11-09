@@ -3,10 +3,11 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
 import healthRouter from "./routes/health.routes";
+import itemRouter from "./routes/item.routes"; // items route
 
 dotenv.config();
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 const MONGO_URI =
     process.env.MONGO_URI ||
     process.env.MONGO_LOCAL_URL ||
@@ -14,29 +15,34 @@ const MONGO_URI =
 
 const app = express();
 
-// Middleware
+// middlewares
 app.use(cors());
 app.use(express.json());
 
-// Routes
+// test route
 app.get("/", (req: Request, res: Response) => {
     res.send("RentLanka Rental Management API is online!");
 });
 
+// health check
 app.use("/api/v1/health", healthRouter);
 
-// Database Connection & Server Startup
+// all rental items routes
+app.use("/api/v1/items", itemRouter);
+
+// try mongo connect but not block server
 mongoose
     .connect(MONGO_URI)
     .then(() => {
         console.log("DB connected..!");
-        app.listen(PORT, () => {
-            console.log(`Server is running on http://localhost:${PORT}`);
-        });
     })
     .catch((err) => {
-        console.error("Fail to connect DB..!", err);
+        console.log("Mongo skip, using supabase");
     });
 
-export default app;
+// start server
+app.listen(PORT, () => {
+    console.log(`Server is running on http://localhost:${PORT}`);
+});
 
+export default app;
