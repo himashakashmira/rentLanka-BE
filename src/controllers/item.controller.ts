@@ -48,3 +48,21 @@ export const createItem = async (req: Request, res: Response): Promise<void> => 
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+// get single item details by id
+export const getItemById = async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!supabase) {
+      res.status(500).json({ success: false, message: "Supabase not connected" });
+      return;
+    }
+
+    const { id } = req.params;
+    const { data, error } = await supabase.from("items").select("*").eq("id", id).single();
+
+    if (error) throw error;
+    res.status(200).json({ success: true, data });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
