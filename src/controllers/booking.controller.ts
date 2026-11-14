@@ -1,73 +1,57 @@
 import { Request, Response } from "express";
-import { supabase } from "../config/supabase";
+import Booking from "../models/booking.model";
+import Item from "../models/item.model";
 
-// get all bookings for admin dashboard
+// get all bookings
 export const getAllBookings = async (req: Request, res: Response): Promise<void> => {
   try {
-    if (!supabase) {
-      res.status(500).json({ success: false, message: "Supabase not connected" });
-      return;
-    }
-
-    const { data, error } = await supabase
-      .from("bookings")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (error) throw error;
-    res.status(200).json({ success: true, data });
+    const bookings = await Booking.find().sort({ createdAt: -1 });
+    res.status(200).json({ success: true, data: bookings });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
   }
 };
 
-// create booking request by customer
+// create booking
 export const createBooking = async (req: Request, res: Response): Promise<void> => {
   try {
-    if (!supabase) {
-      res.status(500).json({ success: false, message: "Supabase not connected" });
-      return;
-    }
-
     const { item_id, item_title, renter_name, renter_phone, start_date, end_date, total_price } = req.body;
 
-    const { data, error } = await supabase.from("bookings").insert([
-      { item_id, item_title, renter_name, renter_phone, start_date, end_date, total_price, status: "Pending" }
-    ]).select();
+    const newBooking = await Booking.create({
+      item_id,
+      item_title,
+      renter_name,
+      renter_phone,
+      start_date,
+      end_date,
+      total_price,
+      status: "Pending",
+    });
 
-    if (error) throw error;
-    res.status(201).json({ success: true, message: "Booking created", data });
+    res.status(201).json({ success: true, message: "Booking created", data: newBooking });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
   }
 };
 
-// admin can confirm or reject booking
+// update booking status (confirm / reject)
 export const updateBookingStatus = async (req: Request, res: Response): Promise<void> => {
   try {
-    if (!supabase) {
-      res.status(500).json({ success: false, message: "Supabase not connected" });
-      return;
-    }
-
     const { id } = req.params;
-    const { status, item_id } = req.body; // status is 'Confirmed' or 'Rejected'
+    const { status, item_id } = req.body;
 
-    // update booking status
-    const { data, error } = await supabase
-      .from("bookings")
-      .update({ status })
-      .eq("id", id)
-      .select();
+    const updatedBooking = await Booking.findByIdAndUpdate(
+      id,
+      { status },
+      { new: true }
+    );
 
-    if (error) throw error;
-
-    // if admin confirmed, mark item as not available on homepage
+    // if admin confirms, mark item as not available
     if (status === "Confirmed" && item_id) {
-      await supabase.from("items").update({ is_available: false }).eq("id", item_id);
+      await Item.findByIdAndUpdate(item_id, { is_available: false });
     }
 
-    res.status(200).json({ success: true, message: `Booking ${status}`, data });
+    res.status(200).json({ success: true, message: `Booking ${status}`, data: updatedBooking });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
   }
