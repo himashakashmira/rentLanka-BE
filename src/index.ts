@@ -6,6 +6,7 @@ import healthRouter from "./routes/health.routes";
 import itemRouter from "./routes/item.routes"; // items route
 import bookingRouter from "./routes/booking.routes";
 import authRouter from "./routes/auth.routes";
+import categoryRouter from "./routes/category.routes";
 
 dotenv.config();
 
@@ -37,6 +38,9 @@ app.use("/api/v1/bookings", bookingRouter);
 
 // auth routes
 app.use("/api/v1/auth", authRouter);
+
+// category routes
+app.use("/api/v1/categories", categoryRouter);
 
 // try mongo connect but not block server
 mongoose
