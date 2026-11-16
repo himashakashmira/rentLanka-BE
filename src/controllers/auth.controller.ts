@@ -1,79 +1,88 @@
 import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import User from "../models/user.model";
+import User from "../models/User";
+import { AuthRequest } from "../middleware/auth.middleware";
 
 const JWT_SECRET = process.env.JWT_SECRET || "rentlanka_super_secret_jwt_key_123";
 
-// register new user
+// Register user
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, phone, nic } = req.body;
 
-    // check if user exists
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      res.status(400).json({ success: false, message: "Email already registered" });
+    if (!name || !email || !password) {
+      res.status(400).json({ success: false, message: "Name, email, and password are required" });
       return;
     }
 
-    // hash password
+    const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
+    if (existingUser) {
+      res.status(400).json({ success: false, message: "Email is already registered" });
+      return;
+    }
+
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // save user
     const newUser = await User.create({
-      name,
-      email,
+      name: name.trim(),
+      email: email.toLowerCase().trim(),
       password: hashedPassword,
-      role: role || "customer",
+      role: role && ["customer", "host", "admin"].includes(role) ? role : "customer",
+      phone: phone || "",
+      nic: nic || "",
     });
 
-    // generate token
     const token = jwt.sign(
-      { id: newUser._id, role: newUser.role, name: newUser.name },
+      { id: newUser._id.toString(), role: newUser.role, name: newUser.name, email: newUser.email },
       JWT_SECRET,
       { expiresIn: "7d" }
     );
 
     res.status(201).json({
       success: true,
-      message: "User registered successfully",
+      message: "Registration successful",
       token,
       user: {
         id: newUser._id,
         name: newUser.name,
         email: newUser.email,
         role: newUser.role,
+        phone: newUser.phone,
+        nic: newUser.nic,
       },
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message });
+    console.error("Register error:", err);
+    res.status(500).json({ success: false, message: err.message || "Failed to register" });
   }
 };
 
-// login user
+// Login user
 export const login = async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body;
 
-    // find user
-    const user = await User.findOne({ email });
-    if (!user) {
-      res.status(400).json({ success: false, message: "Invalid email or password" });
+    if (!email || !password) {
+      res.status(400).json({ success: false, message: "Email and password are required" });
       return;
     }
 
-    // check password
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    if (!user) {
+      res.status(401).json({ success: false, message: "Invalid email or password" });
+      return;
+    }
+
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      res.status(400).json({ success: false, message: "Invalid email or password" });
+      res.status(401).json({ success: false, message: "Invalid email or password" });
       return;
     }
 
-    // generate token
     const token = jwt.sign(
-      { id: user._id, role: user.role, name: user.name },
+      { id: user._id.toString(), role: user.role, name: user.name, email: user.email },
       JWT_SECRET,
       { expiresIn: "7d" }
     );
@@ -87,8 +96,31 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         name: user.name,
         email: user.email,
         role: user.role,
+        phone: user.phone || "",
+        nic: user.nic || "",
       },
     });
+  } catch (err: any) {
+    console.error("Login error:", err);
+    res.status(500).json({ success: false, message: err.message || "Failed to login" });
+  }
+};
+
+// Get current user profile
+export const getMe = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ success: false, message: "Unauthorized" });
+      return;
+    }
+
+    const user = await User.findById(req.user.id).select("-password");
+    if (!user) {
+      res.status(404).json({ success: false, message: "User not found" });
+      return;
+    }
+
+    res.status(200).json({ success: true, user });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
   }
