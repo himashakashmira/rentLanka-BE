@@ -10,6 +10,7 @@ import categoryRouter from "./routes/category.routes";
 import aiRouter from "./routes/ai.routes";
 import { checkAndSeedItems } from "./controllers/item.controller";
 import { checkAndSeedCategories } from "./controllers/category.controller";
+import uploadRouter from "./routes/upload.routes";
 
 dotenv.config();
 
@@ -53,6 +54,9 @@ app.use("/api/v1/bookings", bookingRouter);
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/categories", categoryRouter);
 app.use("/api/v1/ai", aiRouter);
+
+// image upload to supabase
+app.use("/api/v1/upload", uploadRouter);
 
 // Global 404 handler
 app.use((req: Request, res: Response) => {

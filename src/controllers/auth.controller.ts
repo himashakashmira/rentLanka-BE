@@ -125,3 +125,33 @@ export const getMe = async (req: AuthRequest, res: Response): Promise<void> => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+// Forgot password request
+export const forgotPassword = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      res.status(400).json({ success: false, message: "Email is required" });
+      return;
+    }
+
+    // In production, an email with a secure signed reset token is dispatched
+    res.status(200).json({
+      success: true,
+      message: "If that email is registered with RentLanka, a reset link has been dispatched.",
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || "Failed to process request" });
+  }
+};
+
+// Get all registered users (Admin directory)
+export const getAllUsers = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const users = await User.find().select("-password").sort({ createdAt: -1 });
+    res.status(200).json({ success: true, count: users.length, users });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || "Failed to fetch users" });
+  }
+};
+

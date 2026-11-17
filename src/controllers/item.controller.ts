@@ -234,9 +234,9 @@ export const getAllItems = async (req: Request, res: Response): Promise<void> =>
     const { category, search, location, minPrice, maxPrice, available, sortBy } = req.query;
     const filter: any = {};
 
-    // Filter by Category
+    // Filter by Category (flexible regex substring match)
     if (category && category !== "all" && category !== "All" && category !== "All categories") {
-      filter.category = { $regex: new RegExp(`^${category}$`, "i") };
+      filter.category = { $regex: new RegExp(String(category).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") };
     }
 
     // Filter by Search Query (Title or Description)
