@@ -6,6 +6,7 @@ export interface IBooking extends Document {
   item_image?: string;
   item_location?: string;
   renter_name: string;
+  renter_email?: string;
   renter_phone: string;
   renter_nic: string;
   start_date: string;
@@ -29,6 +30,7 @@ const BookingSchema: Schema = new Schema(
     item_image: { type: String, default: "" },
     item_location: { type: String, default: "Colombo" },
     renter_name: { type: String, required: true, trim: true },
+    renter_email: { type: String, default: "" },
     renter_phone: { type: String, required: true, trim: true },
     renter_nic: { type: String, required: true, trim: true },
     start_date: { type: String, required: true },

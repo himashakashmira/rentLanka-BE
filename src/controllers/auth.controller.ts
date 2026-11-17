@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User";
 import { AuthRequest } from "../middleware/auth.middleware";
+import { sendWelcomeEmail } from "../services/email.service";
 
 const JWT_SECRET = process.env.JWT_SECRET || "rentlanka_super_secret_jwt_key_123";
 
@@ -39,6 +40,11 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       JWT_SECRET,
       { expiresIn: "7d" }
     );
+
+    // Trigger welcome notification email asynchronously (non-blocking)
+    sendWelcomeEmail(newUser.email, newUser.name).catch((err) => {
+      console.warn("Welcome email async dispatch notice:", err.message);
+    });
 
     res.status(201).json({
       success: true,

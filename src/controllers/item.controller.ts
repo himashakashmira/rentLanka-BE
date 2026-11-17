@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import Item from "../models/Item";
 import { AuthRequest } from "../middleware/auth.middleware";
+import { sendListingPublishedEmail } from "../services/email.service";
 
 // Default initial items for RentLanka platform
 export const INITIAL_RENTAL_ITEMS = [
@@ -351,6 +352,19 @@ export const createItem = async (req: AuthRequest, res: Response): Promise<void>
       owner_id: req.user ? req.user.id : undefined,
       specs: specs || {},
       inclusions: inclusions || [],
+    });
+
+    // Trigger listing published notification asynchronously (non-blocking)
+    const hostEmail = req.user?.email || req.body.owner_email || "host@rentlanka.lk";
+    const hostName = newItem.owner_name || req.user?.name || "RentLanka Verified Host";
+    sendListingPublishedEmail(
+      hostEmail,
+      hostName,
+      newItem.title,
+      newItem.price_per_day,
+      newItem.location
+    ).catch((err) => {
+      console.warn("Listing published email async dispatch notice:", err.message);
     });
 
     res.status(201).json({
