@@ -4,9 +4,12 @@ import Item from "../models/Item";
 
 dotenv.config();
 
-// sleep helper identical to Java's Thread.sleep(1500)
+// sleep helper for retries (just like Thread.sleep in Spring Boot)
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// ============================================================================
+// GENERATE ITEM DESCRIPTION (AI Copywriter)
+// ============================================================================
 export const generateItemDescription = async (req: Request, res: Response): Promise<void> => {
   const { title, category, location, specifications } = req.body;
 
@@ -16,260 +19,174 @@ export const generateItemDescription = async (req: Request, res: Response): Prom
   }
 
   const apiKey = process.env.GEMINI_API_KEY || "";
-  const maxRetries = 3;
+  const models = ["gemini-1.5-flash-latest", "gemini-2.0-flash", "gemini-1.5-flash"];
 
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      console.log(`[RentLanka AI] Attempt ${attempt} of ${maxRetries} for: ${title}`);
+  const prompt = `
+You are 'RentLanka AI', an expert equipment and vehicle copywriter for RentLanka (Sri Lanka).
+Generate a rich, persuasive 2-paragraph rental advertisement (80-100 words) for:
+- Title: "${title}"
+- Category: "${category || 'General'}"
+- Location: "${location || 'Colombo'}"
+${specifications ? `- Specs: ${JSON.stringify(specifications)}` : ''}
 
-      // Build system instructions matching your Java Aurum AI pattern
-      const systemInstructions = `
-You are 'RentLanka AI', the expert commercial equipment copywriter and rental consultant for RentLanka Marketplace (Sri Lanka).
+Rules:
+1. Mention real condition, reliability, and local Sri Lankan use-cases (road trips, commercial shoots, projects).
+2. Do not use quotes or robotic filler.
+`.trim();
 
-ITEM CONTEXT:
-- Title: ${title}
-- Category: ${category || "General"}
-- Handover Hub: ${location || "Colombo"}
-${specifications ? `- Technical Specs: ${JSON.stringify(specifications)}` : ""}
-
-KNOWLEDGE & WRITING RULES:
-1. DEEP REAL PRODUCT KNOWLEDGE:
-   - Identify the exact product "${title}". Detail its real-world specs (e.g. if JBL PartyBox: mention explosive pro sound, deep punchy bass, dynamic party lightshow, wireless mic inputs, and long battery life. If vehicle: interior comfort, AC, automatic/manual transmission, and fuel economy. If camera: 4K/8K resolution, dynamic range, and lens clarity).
-2. TONE & STRUCTURE:
-   - Write a rich, persuasive 2-paragraph rental advertisement (around 80-120 words).
-   - Paragraph 1: Product features, power, and condition.
-   - Paragraph 2: Ideal use-cases in Sri Lanka (events, road trips, commercial shoots) and handover readiness.
-   - Do NOT use quotation marks. Do not use generic robotic filler.
-      `.trim();
-
-      // Working Gemini Model Endpoint
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
-
-      const requestBody = {
-        contents: [
-          {
-            parts: [{ text: systemInstructions + `\n\nGenerate listing description for: ${title}` }],
-          },
-        ],
-      };
-
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData?.error?.message || response.statusText);
-      }
-
-      const root = await response.json();
-      const generatedText = root?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-
-      if (!generatedText) {
-        throw new Error("Empty text in Gemini response");
-      }
-
-      console.log(`[RentLanka AI] Succeeded on attempt ${attempt}!`);
-      res.status(200).json({
-        success: true,
-        description: generatedText,
-      });
-      return; // Success, exit function
-    } catch (e: any) {
-      console.log(`[RentLanka AI] Attempt ${attempt} failed:`, e.message);
-
-      if (attempt === maxRetries) {
-        res.status(200).json({
-          success: true,
-          description: `High-performance ${title} available for rental in ${location || 'Sri Lanka'}. Maintained in mint condition and fully tested for immediate handover.`,
+  if (apiKey) {
+    for (const model of models) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
         });
-        return;
-      }
 
-      await sleep(1500);
+        if (response.ok) {
+          const data = await response.json();
+          const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+          if (text) {
+            res.status(200).json({ success: true, description: text });
+            return;
+          }
+        }
+      } catch (err) {
+        // try next model
+      }
     }
   }
+
+  // fallback description
+  res.status(200).json({
+    success: true,
+    description: `High-quality ${title} available for verified rental in ${location || 'Sri Lanka'}. Fully tested, inspected, and maintained in mint condition for immediate handover.`,
+  });
 };
 
-
+// ============================================================================
+// CHAT WITH RENTLANKA AI (Spring Boot Architecture with Live MongoDB Fleet Context)
+// ============================================================================
 export const chatWithRentLankaAI = async (req: Request, res: Response): Promise<void> => {
   const { message } = req.body;
 
   if (!message || typeof message !== "string" || !message.trim()) {
-    res.status(400).json({ success: false, message: "A user message string is required" });
+    res.status(400).json({ success: false, message: "Message is required" });
     return;
   }
 
-  const userQuery = message.trim();
+  const userMessage = message.trim();
+  const apiKey = process.env.GEMINI_API_KEY || "";
 
-  // 1. Fetch live fleet context from MongoDB
-  let fleetSummary = "No active fleet listed";
+  // 1. Fetch live system context from database (just like Spring Boot service)
   let activeItems: any[] = [];
   try {
     activeItems = await Item.find({ is_available: true })
-      .select("title category price_per_day location security_deposit")
-      .limit(35);
-
-    if (activeItems.length > 0) {
-      fleetSummary = activeItems
-        .map(
-          (i) =>
-            `${i.title} (${i.category}) in ${i.location} at LKR ${Number(i.price_per_day).toLocaleString()}/day`
-        )
-        .join("; ");
-    }
-  } catch (dbErr: any) {
-    console.warn("[RentLanka AI] MongoDB live fleet context fetch error:", dbErr.message);
+      .select("title category location price_per_day is_available")
+      .lean();
+  } catch (err: any) {
+    console.warn("MongoDB fleet fetch error:", err.message);
   }
 
-  // 2. Build strict system instructions (matching Java/RAD specification)
+  // Format real fleet context
+  const fleetInventory = activeItems.length > 0
+    ? activeItems.map(i => `• ${i.title} (${i.category}) in ${i.location} at LKR ${Number(i.price_per_day).toLocaleString()}/day`).join("\n")
+    : "No fleet items currently listed.";
+
+  // 2. Build system instructions (Exact Spring Boot structure)
   const systemInstructions = `
-You are 'RentLanka AI', the official intelligent rental consultant for 'RentLanka' marketplace in Sri Lanka.
+You are 'RentLanka Concierge', the intelligent customer assistant and rental advisor for 'RentLanka' marketplace in Sri Lanka.
 
-LIVE DATABASE FLEET CONTEXT:
-Available items currently in system: [ ${fleetSummary} ]
-Escrow terms: Refundable deposit held securely via LankaPay escrow and returned within 2-4 hours after safe return.
+STORE LIVE DATA CONTEXT:
+Total Available Items: ${activeItems.length}
+Current Live Inventory:
+${fleetInventory}
 
-BEHAVIOR & KNOWLEDGE RULES:
-1. RENTLANKA INQUIRIES:
-   - Answer questions about available vehicles, cameras, tools, machinery, rental rates, pickup locations, and booking procedures using the live fleet context above.
-   - If an item is NOT in the database, politely state that it is currently not listed and suggest checking back later or browsing similar categories.
-
-2. STRICT NON-RENTAL RESTRICTION (CRITICAL GUARDRAIL):
-   - If the user asks about ANYTHING unrelated to RentLanka rentals (e.g. politics, who is president, sports, weather, coding, movies, medical advice, cooking), you MUST POLITELY REFUSE:
-     "I am RentLanka AI, dedicated exclusively to assisting with rental equipment, vehicles, and bookings on RentLanka. I cannot assist with unrelated topics."
-     (If asked in Sinhala, respond: "සමාවෙන්න, මට සහාය විය හැක්කේ RentLanka හි වාහන, උපකරණ කුලියට ගැනීම් සහ වෙන්කිරීම් පිළිබඳව පමණි.")
-
-3. LANGUAGE & TONE:
-   - Respond warmly and concisely in the user's language (Sinhala, English, or Singlish).
+KNOWLEDGE & BEHAVIOR RULES:
+1. STORE INQUIRIES & AVAILABILITY:
+   - Check the LIVE INVENTORY above to answer questions about vehicles, equipment, and locations.
+   - If the user asks about cars or items in a specific city (e.g. "Matara", "Beliatta", "Galle", "Colombo"):
+     * Check if an item exists in that city in the inventory.
+     * If yes, name the exact item, category, location, and daily rate in LKR (e.g., "2017 Vitz in Matara for LKR 5,000/day" or "Honda Dio in Beliatta for LKR 2,500/day").
+     * If no exact match for that city, state what is available and suggest the nearest town.
+2. POLICIES & ESCROW:
+   - Security deposits are held securely via LankaPay escrow and refunded within 2-4 hours after safe return.
+3. STRICT OFF-TOPIC RESTRICTION:
+   - If the user asks about anything completely unrelated to rentals (e.g. politics, coding, medical advice, cooking, celebrities), politely refuse:
+     "I am an AI consultant dedicated exclusively to equipment and vehicle rentals on RentLanka. I cannot assist with unrelated topics."
+4. TONE & LANGUAGE:
+   - Respond politely and concisely (2-3 sentences) in the language of the user (Sinhala, English, or Singlish).
 `.trim();
 
-  // Helper guardrail check for fallback / offline simulation
-  const isSinhala = /[\u0D80-\u0DFF]/.test(userQuery);
-  const isOffTopic = (text: string): boolean => {
-    const lower = text.toLowerCase();
-    const offTopicKeywords = [
-      "president", "politics", "minister", "parliament", "election", "vote",
-      "weather", "forecast", "rain", "temperature",
-      "movie", "cinema film", "actor", "actress", "song", "cricket", "football", "ipl", "match",
-      "coding", "write code", "python", "javascript", "react", "bug", "algorithm",
-      "doctor", "medicine", "headache", "recipe", "cook", "biryani",
-    ];
-    return offTopicKeywords.some((kw) => lower.includes(kw));
-  };
+  // 3. Retry loop (Exact Spring Boot maxRetries = 3 with delay)
+  const maxRetries = 3;
+  const models = ["gemini-1.5-flash-latest", "gemini-2.0-flash", "gemini-1.5-flash"];
 
-  const refusalMessage = isSinhala
-    ? "සමාවෙන්න, මට සහාය විය හැක්කේ RentLanka හි වාහන, උපකරණ කුලියට ගැනීම් සහ වෙන්කිරීම් පිළිබඳව පමණි."
-    : "I am RentLanka AI, dedicated exclusively to assisting with rental equipment, vehicles, and bookings on RentLanka. I cannot assist with unrelated topics.";
+  if (apiKey) {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const model = models[attempt % models.length];
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-  if (isOffTopic(userQuery)) {
+        const requestBody = {
+          contents: [
+            {
+              parts: [{ text: `${systemInstructions}\n\nUser Question: ${userMessage}` }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 500,
+          },
+        };
+
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        });
+
+        if (response.ok) {
+          const root = await response.json();
+          const reply = root?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+          if (reply) {
+            res.status(200).json({ success: true, reply, source: model });
+            return;
+          }
+        }
+
+        // Delay between retries (just like Thread.sleep(1500) in Java)
+        await sleep(1200);
+      } catch (err: any) {
+        console.warn(`Retry attempt ${attempt + 1} failed:`, err.message);
+        await sleep(1200);
+      }
+    }
+  }
+
+  // 4. Smart Local Matcher Fallback (Guaranteed to answer Matara, Beliatta, etc. accurately if API is offline)
+  const queryLower = userMessage.toLowerCase();
+  const matched = activeItems.filter(i =>
+    queryLower.includes(i.location.toLowerCase()) ||
+    queryLower.includes(i.title.toLowerCase())
+  );
+
+  if (matched.length > 0) {
+    const list = matched.map(m => `• ${m.title} in ${m.location} for LKR ${Number(m.price_per_day).toLocaleString()}/day`).join("\n");
     res.status(200).json({
       success: true,
-      reply: refusalMessage,
+      reply: `Yes! Here are the matching rentals available in our database:\n${list}\n\nYou can book any of these directly on RentLanka!`,
+      source: "db-matcher",
     });
     return;
   }
 
-  const apiKey = process.env.GEMINI_API_KEY || "";
-  const maxRetries = 3;
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      console.log(`[RentLanka AI Chat] Attempt ${attempt} of ${maxRetries} for: "${userQuery.slice(0, 30)}..."`);
-
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
-
-      const requestBody = {
-        contents: [
-          {
-            parts: [
-              {
-                text: `${systemInstructions}\n\nUser Question: ${userQuery}`,
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 600,
-        },
-      };
-
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData?.error?.message || response.statusText);
-      }
-
-      const root = await response.json();
-      const generatedText = root?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-
-      if (!generatedText) {
-        throw new Error("Empty text in Gemini response");
-      }
-
-      console.log(`[RentLanka AI Chat] Succeeded on attempt ${attempt}!`);
-      res.status(200).json({
-        success: true,
-        reply: generatedText,
-      });
-      return;
-    } catch (e: any) {
-      console.log(`[RentLanka AI Chat] Attempt ${attempt} failed:`, e.message);
-
-      if (attempt === maxRetries) {
-        // High-fidelity fallback based on live database fleet context
-        const lowerQ = userQuery.toLowerCase();
-        let fallbackReply = "";
-
-        if (lowerQ.includes("deposit") || lowerQ.includes("escrow") || lowerQ.includes("refund")) {
-          fallbackReply = isSinhala
-            ? "RentLanka හි සියලුම තැන්පතු LankaPay escrow හරහා සුරක්ෂිතව තබා ගන්නා අතර භාණ්ඩය ආපසු භාරදී පැය 2-4ක් ඇතුළත ආපසු මුදා හරිනු ලැබේ."
-            : "RentLanka holds all refundable security deposits securely via LankaPay escrow. Once equipment is safely returned and inspected, the hold is automatically released within 2 to 4 hours.";
-        } else if (lowerQ.includes("car") || lowerQ.includes("vehicle") || lowerQ.includes("prado") || lowerQ.includes("hilux")) {
-          const vehicles = activeItems.filter((i) => i.category === "Vehicles");
-          if (vehicles.length > 0) {
-            fallbackReply = `Currently available vehicles: ${vehicles.map(v => `${v.title} in ${v.location} (LKR ${Number(v.price_per_day).toLocaleString()}/day)`).join("; ")}. All vehicle hires include comprehensive commercial insurance.`;
-          } else {
-            fallbackReply = "We have rugged 4x4 double cab Hiluxes and Toyota Land Cruiser Prados available for regional travel across Sri Lanka. Check our Explore Rentals tab for full availability!";
-          }
-        } else if (lowerQ.includes("camera") || lowerQ.includes("fx6") || lowerQ.includes("cine") || lowerQ.includes("lens")) {
-          const cameras = activeItems.filter((i) => i.category === "Cameras");
-          if (cameras.length > 0) {
-            fallbackReply = `Available cine cameras in stock: ${cameras.map(c => `${c.title} in ${c.location} at LKR ${Number(c.price_per_day).toLocaleString()}/day`).join("; ")}. Ready for immediate shoot handover.`;
-          } else {
-            fallbackReply = "We have production-ready Sony FX6 full-frame cinema kits and GM lenses available in Colombo with V-Mount battery sets.";
-          }
-        } else if (lowerQ.includes("colombo") || lowerQ.includes("kandy") || lowerQ.includes("galle")) {
-          const locMatched = activeItems.filter((i) => lowerQ.includes(i.location.toLowerCase()));
-          if (locMatched.length > 0) {
-            fallbackReply = `Here are active rentals in your requested region: ${locMatched.slice(0, 4).map(m => `${m.title} at LKR ${Number(m.price_per_day).toLocaleString()}/day`).join("; ")}.`;
-          } else {
-            fallbackReply = "RentLanka connects verified hosts across Colombo, Kandy, Galle, and Jaffna with islandwide courier delivery available.";
-          }
-        } else {
-          fallbackReply = isSinhala
-            ? `RentLanka වෙත සාදරයෙන් පිළිගනිමු! අපගේ ක්‍රියාකාරී පද්ධතියේ වාහන, කැමරා සහ යන්ත්‍රෝපකරණ ${activeItems.length}ක් ලැයිස්තුගත කර ඇත. ඔබට අවශ්‍ය උපකරණය පිළිබඳව විමසන්න.`
-            : `Hello! I am RentLanka AI. We currently have ${activeItems.length} verified pieces of equipment and vehicles available across Sri Lanka (4x4 SUVs, FX6 cinema rigs, excavators, and power gear). How can I assist with your hire today?`;
-        }
-
-        res.status(200).json({
-          success: true,
-          reply: fallbackReply,
-        });
-        return;
-      }
-
-      await sleep(1500);
-    }
-  }
+  res.status(200).json({
+    success: true,
+    reply: `Hello! We currently have ${activeItems.length} verified rentals available across Sri Lanka including cars, bikes, and cameras. How can I assist with your hire today?`,
+    source: "fallback",
+  });
 };
+
+export const chatWithAi = chatWithRentLankaAI;
