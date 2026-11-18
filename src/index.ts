@@ -1,6 +1,7 @@
 import express, { Request, Response } from "express";
 import dotenv from "dotenv";
 import cors from "cors";
+import mongoose from "mongoose";
 import connectDB from "./config/db";
 import healthRouter from "./routes/health.routes";
 import itemRouter from "./routes/item.routes";
@@ -47,6 +48,19 @@ app.get("/", (req: Request, res: Response) => {
   });
 });
 
+// Middleware to ensure MongoDB is connected before handling any request (Vercel Serverless fix)
+app.use(async (req: Request, res: Response, next) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      await connectDB();
+    }
+    next();
+  } catch (err) {
+    console.error("Database connection middleware error:", err);
+    res.status(500).json({ success: false, message: "Database connection failed. Please check MONGO_URI." });
+  }
+});
+
 // API Routes
 app.use("/api/v1/health", healthRouter);
 app.use("/api/v1/items", itemRouter);
@@ -71,7 +85,7 @@ connectDB().then(async () => {
 
 // Start Server
 app.listen(PORT, () => {
-  console.log(` RentLanka Backend Server running on http://localhost:${PORT}`);
+  console.log(`RentLanka Backend Server running on http://localhost:${PORT}`);
 });
 
 export default app;
