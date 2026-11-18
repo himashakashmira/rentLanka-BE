@@ -7,10 +7,11 @@ import nodemailer from "nodemailer";
  */
 
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
+const DEFAULT_EMAIL_USER = "himashakashmira7@gmail.com";
 
 // Helper: Check if genuine SMTP credentials are provided
 const hasValidSmtpConfig = (): boolean => {
-  const user = process.env.EMAIL_USER;
+  const user = process.env.EMAIL_USER || DEFAULT_EMAIL_USER;
   const pass = process.env.EMAIL_PASS;
   if (!user || !pass) return false;
   if (user.includes("your_email") || pass.includes("your_gmail")) return false;
@@ -22,7 +23,7 @@ const createTransporter = () => {
   return nodemailer.createTransport({
     service: process.env.EMAIL_SERVICE || "gmail",
     auth: {
-      user: process.env.EMAIL_USER,
+      user: process.env.EMAIL_USER || DEFAULT_EMAIL_USER,
       pass: process.env.EMAIL_PASS,
     },
   });
@@ -247,8 +248,12 @@ const sendMail = async (options: {
     }
 
     const transporter = createTransporter();
+    const fromAddress =
+      process.env.EMAIL_FROM ||
+      `"RentLanka Support" <${process.env.EMAIL_USER || DEFAULT_EMAIL_USER}>`;
+
     await transporter.sendMail({
-      from: `"RentLanka Operations" <${process.env.EMAIL_USER}>`,
+      from: fromAddress,
       to: options.to,
       subject: options.subject,
       html: options.html,
@@ -726,4 +731,286 @@ export const sendBookingConfirmedEmail = async (
       previewText: `Calendar locked for ${itemTitle} (${startDate} - ${endDate}). Net payout: LKR ${hostPayout}.`,
     }),
   ]);
+};
+
+/**
+ * 5. Trigger on NEW BOOKING (Explicitly formatted for Academic RAD Doc Specification)
+ * - Customer Confirmation: "Booking Confirmed: ${item_title} [RentLanka Escrow]"
+ * - Host/Admin Alert: "🔔 New Booking Alert: ${item_title} from ${renter_name}"
+ */
+export const sendNewBookingEmails = async (
+  booking: any,
+  item?: any,
+  customerEmailParam?: string,
+  adminHostEmailParam?: string
+): Promise<void> => {
+  const itemTitle = booking.item_title || item?.title || "Rental Equipment";
+  const ref = booking.booking_reference || "#LK-RENT";
+  const startDate = booking.start_date;
+  const endDate = booking.end_date;
+  const days = booking.duration_days || 1;
+  const total = Number(booking.total_price || 0).toLocaleString();
+  const customerEmail = customerEmailParam || booking.renter_email || "customer@rentlanka.lk";
+  const adminEmail =
+    adminHostEmailParam ||
+    process.env.ADMIN_EMAIL ||
+    process.env.EMAIL_USER ||
+    "himashakashmira7@gmail.com";
+  const hostName = item?.owner_name || "RentLanka Verified Host";
+  const hostPhone = item?.contact_number || "+94 78 360 4911";
+  const handoverLocation = booking.item_location || item?.location || "Colombo Central Hub";
+
+  // --- A. CUSTOMER CONFIRMATION RECEIPT EMAIL ---
+  const customerSubject = `Booking Confirmed: ${itemTitle} [RentLanka Escrow]`;
+  const customerPreheader = `Your reservation receipt for ${itemTitle} is confirmed under LankaPay Escrow. Ref: ${ref}`;
+  const customerBadge = "● LANKAPAY ESCROW CONFIRMED";
+
+  const customerHtml = `
+    <div style="text-align: center; margin-bottom: 20px;">
+      <span style="font-size: 36px;">✅</span>
+      <h2 style="font-size: 22px; font-weight: 800; color: #006948; margin: 8px 0 4px 0;">
+        Booking Confirmed &amp; Secured!
+      </h2>
+      <p style="font-size: 13px; color: #64748b; margin: 0;">
+        Escrow Booking Ref: <strong style="color: #0f172a; font-family: monospace;">${ref}</strong>
+      </p>
+    </div>
+
+    <p style="font-size: 14px; color: #334155; line-height: 1.6; margin: 0 0 16px 0;">
+      Dear <strong>${booking.renter_name}</strong>, your rental booking for <strong>"${itemTitle}"</strong> is confirmed and protected under the RentLanka Escrow Shield.
+    </p>
+
+    <!-- HTML-styled receipt table -->
+    <div class="info-card">
+      <h3 style="font-size: 14px; font-weight: 700; color: #0f172a; margin: 0 0 12px 0;">
+        🧾 Itemized Escrow Rental Receipt
+      </h3>
+      <table class="info-table">
+        <tr>
+          <td class="label">Item Title:</td>
+          <td class="value"><strong>${itemTitle}</strong></td>
+        </tr>
+        <tr>
+          <td class="label">Pick-up Date:</td>
+          <td class="value" style="color: #006948;"><strong>${startDate}</strong> (08:00 AM onwards)</td>
+        </tr>
+        <tr>
+          <td class="label">Return Date:</td>
+          <td class="value"><strong>${endDate}</strong> (by 06:00 PM)</td>
+        </tr>
+        <tr>
+          <td class="label">Hire Duration:</td>
+          <td class="value">${days} Day${days > 1 ? "s" : ""}</td>
+        </tr>
+        <tr>
+          <td class="label">Handover Location:</td>
+          <td class="value">📍 ${handoverLocation}</td>
+        </tr>
+        <tr>
+          <td class="label">Total Amount:</td>
+          <td class="value" style="font-size: 16px; color: #006948;"><strong>LKR ${total}</strong></td>
+        </tr>
+        <tr>
+          <td class="label">LankaPay Escrow:</td>
+          <td class="value" style="color: #16a34a;">🔒 Held in Escrow (Protected)</td>
+        </tr>
+        <tr>
+          <td class="label">Host Contact:</td>
+          <td class="value">${hostName} (<a href="tel:${hostPhone}" style="color: #006948; text-decoration: underline;">${hostPhone}</a>)</td>
+        </tr>
+      </table>
+    </div>
+
+    <div style="background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 12px; padding: 14px; margin: 18px 0;">
+      <p style="font-size: 12px; color: #065f46; margin: 0; line-height: 1.5;">
+        🛡️ <strong>Safety Handover:</strong> Your deposit is held safely in LankaPay escrow and released back to your card within 2-4 hours of equipment return and physical inspection.
+      </p>
+    </div>
+
+    <div style="text-align: center; margin: 24px 0 12px 0;">
+      <a href="${FRONTEND_URL}/explore" class="btn">Explore More Rentals</a>
+    </div>
+  `;
+
+  // --- B. HOST / ADMIN ALERT EMAIL ---
+  const adminSubject = `🔔 New Booking Alert: ${itemTitle} from ${booking.renter_name}`;
+  const adminPreheader = `New booking alert for ${itemTitle} from ${booking.renter_name}. Review in Admin operations.`;
+  const adminBadge = "● INCOMING BOOKING ALERT";
+
+  const adminHtml = `
+    <h2 style="font-size: 20px; font-weight: 800; color: #0f172a; margin: 0 0 10px 0;">
+      🔔 New Rental Booking Placed!
+    </h2>
+    <p style="font-size: 14px; color: #475569; line-height: 1.6; margin: 0 0 18px 0;">
+      A new verified booking has been placed on RentLanka. Details are listed below for administrative review and calendar locking.
+    </p>
+
+    <div class="info-card">
+      <h3 style="font-size: 14px; font-weight: 700; color: #0f172a; margin: 0 0 12px 0;">
+        👤 Customer &amp; Hire Specifications
+      </h3>
+      <table class="info-table">
+        <tr>
+          <td class="label">Item Booked:</td>
+          <td class="value"><strong>${itemTitle}</strong></td>
+        </tr>
+        <tr>
+          <td class="label">Booking Ref:</td>
+          <td class="value" style="color: #006948;">${ref}</td>
+        </tr>
+        <tr>
+          <td class="label">Customer Name:</td>
+          <td class="value"><strong>${booking.renter_name}</strong></td>
+        </tr>
+        <tr>
+          <td class="label">Contact Phone / WhatsApp:</td>
+          <td class="value"><a href="tel:${booking.renter_phone}" style="color: #006948; font-weight: 700;">${booking.renter_phone}</a></td>
+        </tr>
+        <tr>
+          <td class="label">Customer Email:</td>
+          <td class="value">${customerEmail}</td>
+        </tr>
+        <tr>
+          <td class="label">National NIC / Passport:</td>
+          <td class="value">${booking.renter_nic || "Verified"}</td>
+        </tr>
+        <tr>
+          <td class="label">Rental Dates:</td>
+          <td class="value"><strong>${startDate}</strong> to <strong>${endDate}</strong> (${days} Days)</td>
+        </tr>
+        <tr>
+          <td class="label">Total Amount:</td>
+          <td class="value" style="font-size: 16px; color: #006948;"><strong>LKR ${total}</strong></td>
+        </tr>
+      </table>
+    </div>
+
+    <div style="text-align: center; margin: 24px 0 12px 0;">
+      <a href="${FRONTEND_URL}/admin" class="btn">Review in Admin Operations</a>
+      <a href="${FRONTEND_URL}/host-dashboard" class="btn-secondary">Host Dashboard</a>
+    </div>
+
+    <div class="divider"></div>
+
+    <p style="font-size: 11px; color: #64748b; margin: 0;">
+      Direct Operations Dispatch • RentLanka Technologies (Pvt) Ltd.
+    </p>
+  `;
+
+  await Promise.allSettled([
+    sendMail({
+      to: customerEmail,
+      subject: customerSubject,
+      html: renderEmailWrapper(customerPreheader, customerBadge, customerHtml),
+      previewText: `Booking Confirmed: ${itemTitle} (${ref}) for ${startDate} to ${endDate}. Total: LKR ${total}.`,
+    }),
+    sendMail({
+      to: adminEmail,
+      subject: adminSubject,
+      html: renderEmailWrapper(adminPreheader, adminBadge, adminHtml),
+      previewText: `New booking: ${itemTitle} from ${booking.renter_name} (${booking.renter_phone}).`,
+    }),
+  ]);
+};
+
+/**
+ * 6. Trigger on BOOKING APPROVAL (updateBookingStatus when status becomes 'Confirmed')
+ * - Customer Email: "✓ Your Rental Handover is Approved for ${item_title}"
+ * - Body: "The host has approved your booking. Please present your original National NIC & Driving License at pickup."
+ */
+export const sendBookingApprovalEmail = async (
+  customerEmail: string,
+  booking: any,
+  item?: any
+): Promise<boolean> => {
+  const itemTitle = booking.item_title || item?.title || "Rental Equipment";
+  const ref = booking.booking_reference || "#LK-CONFIRMED";
+  const startDate = booking.start_date;
+  const endDate = booking.end_date;
+  const days = booking.duration_days || 1;
+  const total = Number(booking.total_price || 0).toLocaleString();
+  const handoverLocation = booking.item_location || item?.location || "Colombo Central Hub";
+  const hostName = item?.owner_name || "Verified Equipment Host";
+  const hostPhone = item?.contact_number || "+94 78 360 4911";
+
+  const subject = `✓ Your Rental Handover is Approved for ${itemTitle}`;
+  const preheader = `The host has approved your booking for ${itemTitle}. Handover instructions enclosed.`;
+  const badgeText = "● HANDOVER APPROVED & READY";
+
+  const contentHtml = `
+    <div style="text-align: center; margin-bottom: 20px;">
+      <span style="font-size: 36px;">🎉</span>
+      <h2 style="font-size: 22px; font-weight: 800; color: #006948; margin: 8px 0 4px 0;">
+        Your Rental Handover is Approved!
+      </h2>
+      <p style="font-size: 13px; color: #64748b; margin: 0;">
+        Booking Reference: <strong style="color: #0f172a; font-family: monospace;">${ref}</strong>
+      </p>
+    </div>
+
+    <p style="font-size: 14px; color: #334155; line-height: 1.6; margin: 0 0 16px 0;">
+      Dear <strong>${booking.renter_name}</strong>,
+    </p>
+    <p style="font-size: 14px; color: #334155; line-height: 1.6; margin: 0 0 18px 0;">
+      <strong>The host has approved your booking. Please present your original National NIC &amp; Driving License at pickup.</strong>
+    </p>
+
+    <div class="info-card">
+      <h3 style="font-size: 14px; font-weight: 700; color: #0f172a; margin: 0 0 12px 0;">
+        📍 Approved Handover Details
+      </h3>
+      <table class="info-table">
+        <tr>
+          <td class="label">Equipment:</td>
+          <td class="value"><strong>${itemTitle}</strong></td>
+        </tr>
+        <tr>
+          <td class="label">Handover Hub:</td>
+          <td class="value">📍 ${handoverLocation}</td>
+        </tr>
+        <tr>
+          <td class="label">Pickup Window:</td>
+          <td class="value" style="color: #006948;"><strong>${startDate}</strong> (from 08:00 AM)</td>
+        </tr>
+        <tr>
+          <td class="label">Return Deadline:</td>
+          <td class="value"><strong>${endDate}</strong> (by 06:00 PM)</td>
+        </tr>
+        <tr>
+          <td class="label">Rental Period:</td>
+          <td class="value">${days} Day${days > 1 ? "s" : ""}</td>
+        </tr>
+        <tr>
+          <td class="label">Total Paid (Escrow):</td>
+          <td class="value" style="color: #006948;"><strong>LKR ${total}</strong></td>
+        </tr>
+        <tr>
+          <td class="label">Host Contact:</td>
+          <td class="value"><strong>${hostName}</strong> (<a href="tel:${hostPhone}" style="color: #006948;">${hostPhone}</a>)</td>
+        </tr>
+      </table>
+    </div>
+
+    <div style="background-color: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 12px; padding: 16px; margin: 20px 0;">
+      <h4 style="font-size: 13px; font-weight: 700; color: #0f172a; margin: 0 0 8px 0;">
+        📝 Handover Inspection Checklist:
+      </h4>
+      <ul style="font-size: 12px; color: #475569; padding-left: 20px; margin: 0; line-height: 1.6;">
+        <li>Bring your physical National NIC and valid Driving License.</li>
+        <li>Inspect physical condition and document any existing marks with the host.</li>
+        <li>Confirm digital handover on the RentLanka platform.</li>
+      </ul>
+    </div>
+
+    <div style="text-align: center; margin: 24px 0 12px 0;">
+      <a href="${FRONTEND_URL}/explore" class="btn">View Verified Fleet</a>
+    </div>
+  `;
+
+  return sendMail({
+    to: customerEmail,
+    subject,
+    html: renderEmailWrapper(preheader, badgeText, contentHtml),
+    previewText: `The host has approved your booking for ${itemTitle}. Handover on ${startDate} at ${handoverLocation}.`,
+  });
 };

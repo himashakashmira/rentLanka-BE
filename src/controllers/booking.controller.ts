@@ -5,6 +5,8 @@ import User from "../models/User";
 import {
   sendBookingRequestEmail,
   sendBookingConfirmedEmail,
+  sendNewBookingEmails,
+  sendBookingApprovalEmail,
 } from "../services/email.service";
 
 // Generate unique Sri Lankan booking reference code: e.g. #LK-FX6-9812
@@ -131,8 +133,8 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
       await Item.findByIdAndUpdate(item_id, { is_available: false });
     }
 
-    // Resolve host email for async notification
-    let hostEmail = "host@rentlanka.lk";
+    // Resolve host/admin email for async notification
+    let hostEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_USER || "himashakashmira7@gmail.com";
     if (item.owner_id) {
       try {
         const hostUser = await User.findById(item.owner_id).select("email");
@@ -141,16 +143,10 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
     }
     const customerEmail = newBooking.renter_email || "customer@rentlanka.lk";
 
-    // Trigger emails asynchronously (non-blocking)
-    if (finalStatus === "Confirmed") {
-      sendBookingConfirmedEmail(customerEmail, hostEmail, newBooking, item).catch((err) => {
-        console.warn("Booking confirmed email async dispatch notice:", err.message);
-      });
-    } else {
-      sendBookingRequestEmail(customerEmail, hostEmail, newBooking).catch((err) => {
-        console.warn("Booking request email async dispatch notice:", err.message);
-      });
-    }
+    // Trigger emails asynchronously (non-blocking, never fails the booking)
+    sendNewBookingEmails(newBooking, item, customerEmail, hostEmail).catch((err) => {
+      console.warn("[RentLanka Email] New booking email async dispatch notice:", err.message);
+    });
 
     res.status(201).json({
       success: true,
@@ -192,19 +188,14 @@ export const updateBookingStatus = async (req: Request, res: Response): Promise<
     if (status === "Confirmed" && targetItemId) {
       await Item.findByIdAndUpdate(targetItemId, { is_available: false });
 
-      // When status becomes 'Confirmed', trigger sendBookingConfirmedEmail asynchronously
+      // When status becomes 'Confirmed', trigger sendBookingApprovalEmail asynchronously to Customer
       (async () => {
         try {
           const bookingItem = await Item.findById(targetItemId);
-          let hostEmail = "host@rentlanka.lk";
-          if (bookingItem?.owner_id) {
-            const hostUser = await User.findById(bookingItem.owner_id).select("email");
-            if (hostUser?.email) hostEmail = hostUser.email;
-          }
           const customerEmail = updatedBooking.renter_email || "customer@rentlanka.lk";
-          await sendBookingConfirmedEmail(customerEmail, hostEmail, updatedBooking, bookingItem);
+          await sendBookingApprovalEmail(customerEmail, updatedBooking, bookingItem);
         } catch (emailErr: any) {
-          console.warn("Booking confirmation email async error:", emailErr.message);
+          console.warn("[RentLanka Email] Booking approval email async error:", emailErr.message);
         }
       })();
     } else if (status === "Rejected" && targetItemId) {
