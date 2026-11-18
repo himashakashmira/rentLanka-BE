@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User";
 import { AuthRequest } from "../middleware/auth.middleware";
-import { sendWelcomeEmail } from "../services/email.service";
+import { sendWelcomeEmail, sendLoginNotificationEmail } from "../services/email.service";
 
 const JWT_SECRET = process.env.JWT_SECRET || "rentlanka_super_secret_jwt_key_123";
 
@@ -92,6 +92,12 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       JWT_SECRET,
       { expiresIn: "7d" }
     );
+
+    // Trigger login security alert notification email asynchronously (non-blocking)
+    const clientIp = (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "";
+    sendLoginNotificationEmail(user.email, user.name, clientIp).catch((err) => {
+      console.warn("[RentLanka Email] Login alert async dispatch notice:", err.message);
+    });
 
     res.status(200).json({
       success: true,

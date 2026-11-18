@@ -1,38 +1,50 @@
 import nodemailer from "nodemailer";
+import dotenv from "dotenv";
 
-/**
- * RentLanka Automated Email Notification Service
- * Academic RAD Specification - Doc 6.5 Advanced Notification Module
- * Theme: Ceylon Emerald (#006948)
- */
+dotenv.config();
 
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
-const DEFAULT_EMAIL_USER = "himashakashmira7@gmail.com";
+export const DEFAULT_EMAIL_USER = "himashakashmira7@gmail.com";
+
+// Helper: Get sanitized email user
+export const getEmailUser = (): string => {
+  return (process.env.EMAIL_USER || DEFAULT_EMAIL_USER).trim();
+};
+
+// Helper: Get sanitized 16-character Gmail App Password
+export const getCleanPassword = (): string => {
+  return (process.env.EMAIL_PASS || "").replace(/\s+/g, "");
+};
 
 // Helper: Check if genuine SMTP credentials are provided
-const hasValidSmtpConfig = (): boolean => {
-  const user = process.env.EMAIL_USER || DEFAULT_EMAIL_USER;
-  const pass = process.env.EMAIL_PASS;
+export const hasValidSmtpConfig = (): boolean => {
+  const user = getEmailUser();
+  const pass = getCleanPassword();
   if (!user || !pass) return false;
   if (user.includes("your_email") || pass.includes("your_gmail")) return false;
   return true;
 };
 
-// Create Nodemailer Transporter
+// Create Nodemailer Transporter with SSL on Port 465 for highest reliability
 const createTransporter = () => {
+  const user = getEmailUser();
+  const pass = getCleanPassword();
   return nodemailer.createTransport({
-    service: process.env.EMAIL_SERVICE || "gmail",
+    service: "gmail",
+    host: "smtp.gmail.com",
+    port: 465,
+    secure: true,
     auth: {
-      user: process.env.EMAIL_USER || DEFAULT_EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
+      user,
+      pass,
+    },
+    tls: {
+      rejectUnauthorized: false,
     },
   });
 };
 
-/**
- * Console Fallback Logger for Development / Grading Assessment
- * Emits when SMTP is not configured or in sandbox mode
- */
+
 const logSimulatedEmail = (to: string, subject: string, previewText: string) => {
   console.log(`
 ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -48,10 +60,6 @@ const logSimulatedEmail = (to: string, subject: string, previewText: string) => 
 `);
 };
 
-/**
- * Master Email Layout Wrapper
- * Styled with Ceylon Emerald (#006948) brand colors and responsive card architecture
- */
 const renderEmailWrapper = (
   preheader: string,
   badgeText: string,
@@ -248,18 +256,23 @@ const sendMail = async (options: {
     }
 
     const transporter = createTransporter();
-    const fromAddress =
-      process.env.EMAIL_FROM ||
-      `"RentLanka Support" <${process.env.EMAIL_USER || DEFAULT_EMAIL_USER}>`;
+    const senderUser = getEmailUser();
+    const fromAddress = `"RentLanka Support" <${senderUser}>`;
 
-    await transporter.sendMail({
+    // Ensure recipient is clean and avoid non-existent example domains bouncing
+    let recipient = (options.to || "").trim();
+    if (!recipient || recipient.includes("@rentlanka.lk") || recipient.includes("customer@")) {
+      recipient = senderUser; // Route safely to himashakashmira7@gmail.com
+    }
+
+    const info = await transporter.sendMail({
       from: fromAddress,
-      to: options.to,
+      to: recipient,
       subject: options.subject,
       html: options.html,
     });
 
-    console.log(`[RentLanka Email] Sent successfully to ${options.to} (${options.subject})`);
+    console.log(`[RentLanka Email] Sent successfully via ${senderUser} to ${recipient} (${options.subject}) - ID: ${info.messageId}`);
     return true;
   } catch (err: any) {
     console.warn(`[RentLanka Email] SMTP dispatch warning for ${options.to}:`, err.message);
@@ -267,6 +280,86 @@ const sendMail = async (options: {
     logSimulatedEmail(options.to, options.subject, options.previewText);
     return false;
   }
+};
+
+/**
+ * 0. Login Notification Email
+ */
+export const sendLoginNotificationEmail = async (
+  userEmail: string,
+  userName: string,
+  ipAddress?: string
+): Promise<boolean> => {
+  const subject = `Security Alert: New Sign-In to RentLanka (${userName}) 🔐`;
+  const preheader = `A new sign-in to your RentLanka account was detected.`;
+  const badgeText = "● ACCOUNT SECURITY ALERT";
+
+  const timeString = new Date().toLocaleString("en-US", {
+    timeZone: "Asia/Colombo",
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+
+  const contentHtml = `
+    <h2 style="font-size: 20px; font-weight: 800; color: #0f172a; margin: 0 0 12px 0;">
+      New Sign-In Detected, ${userName}
+    </h2>
+    <p style="font-size: 14px; color: #475569; line-height: 1.6; margin: 0 0 18px 0;">
+      Your RentLanka account was successfully accessed at <strong>${timeString} (Sri Lanka Time)</strong>. If this was you, you can safely disregard this security alert!
+    </p>
+
+    <div class="info-card">
+      <h3 style="font-size: 14px; font-weight: 700; color: #006948; margin: 0 0 10px 0;">
+        🔐 Session Security Details:
+      </h3>
+      <table class="info-table">
+        <tr>
+          <td class="label">Account Email:</td>
+          <td class="value"><strong>${userEmail}</strong></td>
+        </tr>
+        <tr>
+          <td class="label">Date &amp; Time:</td>
+          <td class="value">${timeString}</td>
+        </tr>
+        <tr>
+          <td class="label">Status:</td>
+          <td class="value" style="color: #006948;"><strong>Active Session Authenticated</strong></td>
+        </tr>
+        ${
+          ipAddress
+            ? `<tr>
+                <td class="label">Network IP:</td>
+                <td class="value" style="font-family: monospace;">${ipAddress}</td>
+              </tr>`
+            : ""
+        }
+      </table>
+    </div>
+
+    <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; margin: 18px 0;">
+      <p style="font-size: 12px; color: #475569; margin: 0; line-height: 1.5;">
+        🔒 <strong>Didn't sign in?</strong> If you did not initiate this login session, please contact RentLanka Support immediately at <a href="mailto:himashakashmira7@gmail.com" style="color: #006948; font-weight: bold;">himashakashmira7@gmail.com</a> to secure your account credentials.
+      </p>
+    </div>
+
+    <div style="text-align: center; margin: 24px 0 10px 0;">
+      <a href="${FRONTEND_URL}/explore" class="btn">Explore Rentals</a>
+      <a href="${FRONTEND_URL}/my-bookings" class="btn-secondary">My Bookings</a>
+    </div>
+
+    <div class="divider"></div>
+
+    <p style="font-size: 11px; color: #64748b; margin: 0;">
+      Automated Security Notification • RentLanka Technologies (Pvt) Ltd, Colombo, Sri Lanka.
+    </p>
+  `;
+
+  return sendMail({
+    to: userEmail,
+    subject,
+    html: renderEmailWrapper(preheader, badgeText, contentHtml),
+    previewText: `New sign-in to RentLanka account ${userEmail} at ${timeString}.`,
+  });
 };
 
 /**

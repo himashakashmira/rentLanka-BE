@@ -163,7 +163,10 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
         if (hostUser?.email) hostEmail = hostUser.email;
       } catch (e) {}
     }
-    const customerEmail = newBooking.renter_email || "customer@rentlanka.lk";
+    const customerEmail =
+      newBooking.renter_email && !newBooking.renter_email.includes("@rentlanka.lk")
+        ? newBooking.renter_email
+        : process.env.ADMIN_EMAIL || process.env.EMAIL_USER || "himashakashmira7@gmail.com";
 
     // Trigger emails asynchronously (non-blocking, never fails the booking)
     sendNewBookingEmails(newBooking, item, customerEmail, hostEmail).catch((err) => {
@@ -214,7 +217,10 @@ export const updateBookingStatus = async (req: Request, res: Response): Promise<
       (async () => {
         try {
           const bookingItem = await Item.findById(targetItemId);
-          const customerEmail = updatedBooking.renter_email || "customer@rentlanka.lk";
+          const customerEmail =
+            updatedBooking.renter_email && !updatedBooking.renter_email.includes("@rentlanka.lk")
+              ? updatedBooking.renter_email
+              : process.env.ADMIN_EMAIL || process.env.EMAIL_USER || "himashakashmira7@gmail.com";
           await sendBookingApprovalEmail(customerEmail, updatedBooking, bookingItem);
         } catch (emailErr: any) {
           console.warn("[RentLanka Email] Booking approval email async error:", emailErr.message);
