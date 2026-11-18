@@ -19,7 +19,7 @@ const generateBookingReference = (title: string = "RENT"): string => {
 // GET /api/v1/bookings
 export const getAllBookings = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { status, renter_nic, renter_phone } = req.query;
+    const { status, renter_nic, renter_phone, renter_email, host_id, owner_name, item_id } = req.query;
     const filter: any = {};
 
     if (status && status !== "All") {
@@ -34,8 +34,24 @@ export const getAllBookings = async (req: Request, res: Response): Promise<void>
       filter.renter_phone = renter_phone;
     }
 
+    if (renter_email) {
+      filter.renter_email = { $regex: new RegExp(`^${renter_email}$`, "i") };
+    }
+
+    if (host_id) {
+      filter.host_id = host_id;
+    }
+
+    if (owner_name) {
+      filter.owner_name = { $regex: new RegExp(`^${owner_name}$`, "i") };
+    }
+
+    if (item_id) {
+      filter.item_id = item_id;
+    }
+
     const bookings = await Booking.find(filter)
-      .populate("item_id", "title category price_per_day location image_url is_available")
+      .populate("item_id", "title category price_per_day location image_url is_available owner_name owner_id contact_number")
       .sort({ createdAt: -1 });
 
     res.status(200).json({
@@ -104,14 +120,20 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    const finalStatus = status || "Confirmed"; // Escrow checkout auto-confirms or pending
+    const finalStatus = status || "Pending"; // Defaults to 'Pending'
     const booking_reference = generateBookingReference(item.title);
+
+    // Associated Host/Owner of the item
+    const host_id = item.owner_id || null;
+    const owner_name = item.owner_name || "RentLanka Verified Host";
 
     const newBooking = await Booking.create({
       item_id: item._id,
       item_title: item.title,
       item_image: item_image || item.image_url,
       item_location: item_location || item.location,
+      host_id,
+      owner_name,
       renter_name: renter_name.trim(),
       renter_email: (renter_email || (req as any).user?.email || "customer@rentlanka.lk").toLowerCase().trim(),
       renter_phone: renter_phone.trim(),
@@ -165,8 +187,8 @@ export const updateBookingStatus = async (req: Request, res: Response): Promise<
     const { id } = req.params;
     const { status, item_id } = req.body;
 
-    if (!status || !["Pending", "Confirmed", "Rejected"].includes(status)) {
-      res.status(400).json({ success: false, message: "Valid status (Pending, Confirmed, Rejected) is required" });
+    if (!status || !["Pending", "Confirmed", "Rejected", "Cancelled"].includes(status)) {
+      res.status(400).json({ success: false, message: "Valid status (Pending, Confirmed, Rejected, Cancelled) is required" });
       return;
     }
 
@@ -198,8 +220,8 @@ export const updateBookingStatus = async (req: Request, res: Response): Promise<
           console.warn("[RentLanka Email] Booking approval email async error:", emailErr.message);
         }
       })();
-    } else if (status === "Rejected" && targetItemId) {
-      // If rejecting, release calendar back to available
+    } else if ((status === "Rejected" || status === "Cancelled") && targetItemId) {
+      // If rejecting or cancelled, release calendar back to available
       await Item.findByIdAndUpdate(targetItemId, { is_available: true });
     }
 

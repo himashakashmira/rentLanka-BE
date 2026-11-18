@@ -5,6 +5,8 @@ export interface IBooking extends Document {
   item_title: string;
   item_image?: string;
   item_location?: string;
+  host_id?: mongoose.Types.ObjectId;
+  owner_name?: string;
   renter_name: string;
   renter_email?: string;
   renter_phone: string;
@@ -18,7 +20,7 @@ export interface IBooking extends Document {
   platform_fee: number;
   payment_method: string; // 'LankaPay Escrow' | 'Visa / Master' | 'Pay on Pickup / LankaQR'
   booking_reference: string; // e.g. #LK-FX6-9812
-  status: "Pending" | "Confirmed" | "Rejected";
+  status: "Pending" | "Confirmed" | "Rejected" | "Cancelled";
   createdAt: Date;
   updatedAt: Date;
 }
@@ -29,6 +31,8 @@ const BookingSchema: Schema = new Schema(
     item_title: { type: String, required: true },
     item_image: { type: String, default: "" },
     item_location: { type: String, default: "Colombo" },
+    host_id: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    owner_name: { type: String, default: "" },
     renter_name: { type: String, required: true, trim: true },
     renter_email: { type: String, default: "" },
     renter_phone: { type: String, required: true, trim: true },
@@ -44,7 +48,7 @@ const BookingSchema: Schema = new Schema(
     booking_reference: { type: String, required: true },
     status: {
       type: String,
-      enum: ["Pending", "Confirmed", "Rejected"],
+      enum: ["Pending", "Confirmed", "Rejected", "Cancelled"],
       default: "Pending",
     },
   },
